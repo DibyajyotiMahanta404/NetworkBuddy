@@ -1,0 +1,571 @@
+import React, { useState, useEffect, useRef } from "react";
+import { AgentCard, type Agent } from "@/components/AgentCard";
+import { AgentDiagram } from "@/components/AgentDiagram";
+import { LogPanel } from "@/components/LogPanel";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Send } from "lucide-react";
+import axios from "axios";
+ 
+ 
+ 
+type LogEntry = { text: string; className: string };
+const TypingLine = ({ log, delay = 0 }: { log: { text: string; className: string }, delay?: number }) => {
+  const [displayed, setDisplayed] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [shouldStart, setShouldStart] = useState(false);
+ 
+  useEffect(() => {
+    // Start the animation after the specified delay
+    const startTimer = setTimeout(() => {
+      setShouldStart(true);
+    }, delay);
+ 
+    return () => clearTimeout(startTimer);
+  }, [delay]);
+ 
+  useEffect(() => {
+    if (!shouldStart) return;
+ 
+    let i = 0;
+    setDisplayed("");
+    setIsTyping(true);
+ 
+    const interval = setInterval(() => {
+      if (i < log.text.replace("Answer:", "").length) {
+        setDisplayed((prev) => prev + log.text[i]);
+        i++;
+      } else {
+        clearInterval(interval);
+        setIsTyping(false);
+      }
+    }, 5); // typing speed (ms per char)
+ 
+    return () => clearInterval(interval);
+  }, [log.text, shouldStart]);
+ 
+  // Don't render anything until it's time to start
+  if (!shouldStart) {
+    return null;
+  }
+ 
+  return (
+    <div className={log.className}>
+      {displayed}
+      {isTyping && <span className="animate-pulse">▮</span>}
+    </div>
+  );
+};
+ 
+ 
+ 
+ 
+ 
+ 
+// WebSocket service
+// class WebSocketService {
+//   private agentsWs: WebSocket | null = null;
+//   private chatWs: WebSocket | null = null;
+//   private onAgentUpdateCallback: ((agents: any[]) => void) | null = null;
+//   private onLogUpdateCallback: ((log: any) => void) | null = null;
+//   private onInputOutputCallback: ((type: 'input' | 'output', data: any) => void) | null = null;
+//   private reconnectAttempts = 0;
+//   private maxReconnectAttempts = 5;
+//   private reconnectInterval = 3000; // 3 seconds
+ 
+//   connectAgentsWebSocket(onUpdate: (agents: any[]) => void) {
+//     this.onAgentUpdateCallback = onUpdate;
+//     this.tryConnectAgentsWebSocket();
+//   }
+ 
+//   private tryConnectAgentsWebSocket() {
+//     try {
+//       this.agentsWs = new WebSocket('ws://localhost:8000/run');
+ 
+//       this.agentsWs.onopen = () => {
+//         console.log('Connected to agents WebSocket');
+//         this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+//       };
+ 
+//       this.agentsWs.onmessage = (event) => {
+//         try {
+//           const data = JSON.parse(event.data);
+//           if (data.type === 'agents_update' && data.data) {
+//             const agents = data.data.map((agentData: any) => ({
+//               id: agentData.id,
+//               name: agentData.id.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+//               type: agentData.id.replace('-agent', ''),
+//               status: agentData.status,
+//               description: `${agentData.id.replace('-', ' ')} agent for network operations`,
+//               lastActivity: agentData.lastActivity || "Never",
+//               metrics: {
+//                 requests: agentData.metrics?.requests || 0,
+//                 success: agentData.metrics?.successes || 0,
+//                 errors: agentData.metrics?.errors || 0
+//               }
+//             }));
+//             this.onAgentUpdateCallback?.(agents);
+//           }
+//         } catch (error) {
+//           console.error('Error parsing agents WebSocket message:', error);
+//         }
+//       };
+ 
+//       this.agentsWs.onerror = (error) => {
+//         console.error('Agents WebSocket error:', error);
+//       };
+ 
+//       this.agentsWs.onclose = (event) => {
+//         console.log('Agents WebSocket disconnected', event.code, event.reason);
+//         this.scheduleReconnect();
+//       };
+//     } catch (error) {
+//       console.error('Failed to connect to agents WebSocket:', error);
+//       this.scheduleReconnect();
+//     }
+//   }
+ 
+//   connectChatWebSocket(onLogUpdate: (log: any) => void, onInputOutput: (type: 'input' | 'output', data: any) => void) {
+//     this.onLogUpdateCallback = onLogUpdate;
+//     this.onInputOutputCallback = onInputOutput;
+//     this.tryConnectChatWebSocket();
+//   }
+ 
+//   private tryConnectChatWebSocket() {
+//     try {
+//       this.chatWs = new WebSocket('ws://localhost:8000/run');
+ 
+//       this.chatWs.onopen = () => {
+//         console.log('Connected to chat WebSocket');
+//         this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+//       };
+ 
+//       this.chatWs.onmessage = (event) => {
+//         try {
+//           const data = JSON.parse(event.data);
+ 
+//           if (data.event === 'response') {
+//             // Add to main logs
+//             this.onLogUpdateCallback?.({
+//               id: Date.now().toString(),
+//               timestamp: new Date().toLocaleTimeString(),
+//               level: 'info',
+//               source: 'Orchestrator',
+//               message: `Processed query: ${data.data.result}`,
+//               data: data.data
+//             });
+ 
+//             // Extract agent traces for input/output
+//             if (data.data.trace) {
+//               data.data.trace.forEach((trace: any) => {
+//                 this.onInputOutputCallback?.('input', {
+//                   id: Date.now().toString() + '-input',
+//                   timestamp: new Date().toLocaleTimeString(),
+//                   level: 'info',
+//                   source: trace.agent,
+//                   message: `Input: ${JSON.stringify(trace.input)}`,
+//                   data: trace.input
+//                 });
+ 
+//                 this.onInputOutputCallback?.('output', {
+//                   id: Date.now().toString() + '-output',
+//                   timestamp: new Date().toLocaleTimeString(),
+//                   level: 'info',
+//                   source: trace.agent,
+//                   message: `Output: ${JSON.stringify(trace.output)}`,
+//                   data: trace.output
+//                 });
+//               });
+//             }
+//           } else if (data.event === 'error') {
+//             this.onLogUpdateCallback?.({
+//               id: Date.now().toString(),
+//               timestamp: new Date().toLocaleTimeString(),
+//               level: 'error',
+//               source: 'System',
+//               message: data.message,
+//               data: data
+//             });
+//           } else if (data.event === 'processing_started') {
+//             this.onLogUpdateCallback?.({
+//               id: Date.now().toString(),
+//               timestamp: new Date().toLocaleTimeString(),
+//               level: 'info',
+//               source: 'System',
+//               message: data.message,
+//               data: data
+//             });
+//           }
+//         } catch (error) {
+//           console.error('Error parsing chat WebSocket message:', error);
+//         }
+//       };
+ 
+//       this.chatWs.onerror = (error) => {
+//         console.error('Chat WebSocket error:', error);
+//       };
+ 
+//       this.chatWs.onclose = (event) => {
+//         console.log('Chat WebSocket disconnected', event.code, event.reason);
+//         this.scheduleReconnect();
+//       };
+//     } catch (error) {
+//       console.error('Failed to connect to chat WebSocket:', error);
+//       this.scheduleReconnect();
+//     }
+//   }
+ 
+//   private scheduleReconnect() {
+//     if (this.reconnectAttempts < this.maxReconnectAttempts) {
+//       this.reconnectAttempts++;
+//       console.log(`Attempting to reconnect in ${this.reconnectInterval / 1000} seconds (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+ 
+//       setTimeout(() => {
+//         if (this.onAgentUpdateCallback) {
+//           this.tryConnectAgentsWebSocket();
+//         }
+//         if (this.onLogUpdateCallback && this.onInputOutputCallback) {
+//           this.tryConnectChatWebSocket();
+//         }
+//       }, this.reconnectInterval);
+//     } else {
+//       console.error('Max reconnection attempts reached. Please check if the server is running.');
+//     }
+//   }
+ 
+//   sendQuery(query: string) {
+//     if (this.chatWs && this.chatWs.readyState === WebSocket.OPEN) {
+//       this.chatWs.send(JSON.stringify({
+//         user_input: query,
+//         session_id: `session_${Date.now()}`
+//       }));
+//       return true;
+//     } else {
+//       console.error('WebSocket is not connected. Current state:', this.chatWs?.readyState);
+//       return false;
+//     }
+//   }
+ 
+//   disconnect() {
+//     this.agentsWs?.close();
+//     this.chatWs?.close();
+//   }
+ 
+//   getConnectionStatus() {
+//     return {
+//       agents: this.agentsWs?.readyState === WebSocket.OPEN ? 'connected' : 'disconnected',
+//       chat: this.chatWs?.readyState === WebSocket.OPEN ? 'connected' : 'disconnected'
+//     };
+//   }
+// }
+ 
+// const websocketService = new WebSocketService();
+ 
+const ParseStdout =(stdout) =>{
+  const Answer = stdout?.split(/\r?\n|\r/);
+  for(let i=0; i<Answer.length; i++){
+   //take out this *** and ### bold makers from it
+   Answer[i] = Answer[i].replace(/(\*\*|\*\*|###|###)/g, "");
+  }
+  return Answer;
+ 
+}
+ 
+const Index = () => {
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [networkQuery, setNetworkQuery] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [inputLogs, setInputLogs] = useState<any[]>([]);
+  const [outputLogs, setOutputLogs] = useState<any[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
+ 
+  // useEffect(() => {
+  //   // Connect to agents WebSocket
+  //   websocketService.connectAgentsWebSocket((agents) => {
+  //     setAgents(agents);
+  //   });
+ 
+  //   // Connect to chat WebSocket for logs and input/output
+  //   websocketService.connectChatWebSocket(
+  //     (log) => {
+  //       setLogs(prev => [...prev.slice(-49), log]);
+  //     },
+  //     (type, data) => {
+  //       if (type === 'input') {
+  //         setInputLogs(prev => [...prev.slice(-19), data]);
+  //       } else {
+  //         setOutputLogs(prev => [...prev.slice(-19), data]);
+  //       }
+  //     }
+  //   );
+ 
+  //   return () => {
+  //     websocketService.disconnect();
+  //   };
+  // }, []);
+ 
+  // const handleSendQuery = () => {
+  //   if (!networkQuery.trim()) return;
+ 
+  //   setIsProcessing(true);
+ 
+  //   // Add user query to logs
+  //   setLogs(prev => [...prev, {
+  //     id: Date.now().toString(),
+  //     timestamp: new Date().toLocaleTimeString(),
+  //     level: 'info',
+  //     source: 'User',
+  //     message: `Query: ${networkQuery}`,
+  //   }]);
+ 
+  //   // Send query via WebSocket
+  //   const success = websocketService.sendQuery(networkQuery);
+ 
+  //   if (!success) {
+  //     setLogs(prev => [...prev, {
+  //       id: Date.now().toString(),
+  //       timestamp: new Date().toLocaleTimeString(),
+  //       level: 'error',
+  //       source: 'System',
+  //       message: 'Failed to send query. WebSocket not connected.',
+  //     }]);
+  //     setIsProcessing(false);
+  //     return;
+  //   }
+  //   // Clear query
+  //   setNetworkQuery("");
+  //   // Reset processing state after a delay
+  //   setTimeout(() => setIsProcessing(false), 5000);
+  // };
+ 
+ 
+  const handleSendQuery = async () => {
+    if (!networkQuery.trim()) return;
+    setIsProcessing(true);
+ 
+    // Add user query to logs
+    setLogs(prev => [...prev, {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleTimeString(),
+      level: 'info',
+      source: 'User',
+      message: `Query: ${networkQuery}`,
+    }]);
+ 
+    try {
+      const response = await axios.post("http://localhost:8000/run", {
+        user_input: networkQuery,
+        session_id: `session_${Date.now()}`
+      });
+
+      console.log(response.data.stdout);
+       
+        const stdoutLinesCleaned = ParseStdout(response.data.stdout);
+        const newLogs = stdoutLinesCleaned.map(line => ({
+          id: Date.now().toString(),
+          timestamp: new Date().toLocaleTimeString(),
+          level: 'info',
+          source: 'Server',
+          message: line,
+        }));
+        setLogs(prev => [...prev, ...newLogs]);
+ 
+    } catch (error) {
+      setLogs(prev => [...prev, {
+        id: Date.now().toString(),
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'error',
+        source: 'System',
+        message: 'Failed to send query. Server not responding.',
+      }]);
+    }
+ 
+    setNetworkQuery("");
+    setIsProcessing(false);
+  };
+ 
+  const activeAgents = agents.filter(agent => agent.status === "active").length;
+  const processingAgents = agents.filter(agent => agent.status === "processing").length;
+ 
+  // Format logs for display
+  const formattedLogs = logs.map(log => ({
+    text: `[${log.timestamp}] ${log.source}: ${log.message}`,
+    className: `text-${log.level === 'error' ? 'destructive' :
+      log.level === 'warning' ? 'warning' :
+        log.level === 'success' ? 'success' :
+          log.source === 'User' ? 'info' : 'primary'}`
+  }));
+ 
+ 
+  const extractAnswerFromLog = (logMessage: string): string | null => {
+    const answerPrefix = "Answer:";
+    const startIndex = logMessage.indexOf(answerPrefix);
+    if (startIndex === -1) return null;
+    const answerContent = logMessage.slice(startIndex + answerPrefix.length).trim();
+    const colonIndex = answerContent.indexOf(":");
+    return colonIndex !== -1 ? answerContent.trim() : answerContent;
+  };
+ 
+ 
+  const answerLogs = logs
+    .filter(log => log.source === "Orchestrator" && log.message.includes("Answer:"))
+    .map(log => ({
+      timestamp: log.timestamp,
+      source: log.source,
+      answer: extractAnswerFromLog(log.message),
+    }));
+ 
+ 
+  return (
+    <div className="min-h-screen bg-background p-6 space-y-8">
+      {/* Header */}
+      <header className="space-y-2">
+        <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+          AI Agent Portal
+        </h1>
+        <p className="text-muted-foreground text-lg">
+          Monitor and manage autonomous agents in real-time
+        </p>
+      </header>
+ 
+      {/* Main Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-8">
+        {/* Agent Network Diagram */}
+        <Card className="p-6 bg-gradient-secondary border-border h-[600px] flex flex-col h-full">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-primary">Agent Network</h2>
+            <Badge variant="outline" className="border-primary text-primary animate-pulse">
+              Live
+            </Badge>
+          </div>
+          <div className="flex-grow overflow-hidden">
+            <AgentDiagram />
+          </div>
+        </Card>
+ 
+        {/* AI Assistant Query Prompt */}
+        <div className="space-y-8">
+          <Card className="p-6 bg-gradient-secondary border-border">
+            <h2 className="font-semibold text-xl text-primary ">AI Assistant Agent</h2>
+            <p className="text-muted-foreground text-sm mb-3">
+              Ask specific questions about network issues, performance metrics, or troubleshooting
+            </p>
+            <div className="flex gap-3">
+              <Textarea
+                placeholder="e.g., Why is server-03 experiencing high CPU usage? What's causing network latency in segment A?"
+                value={networkQuery}
+                onChange={(e) => setNetworkQuery(e.target.value)}
+                className="flex-1 min-h-[80px] resize-none"
+                disabled={isProcessing}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendQuery();
+                  }
+                }}
+              />
+              <Button
+                className="px-4 h-auto"
+                onClick={handleSendQuery}
+                disabled={isProcessing || !networkQuery.trim()}
+              >
+                {isProcessing ? 'Processing...' : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          </Card>
+ 
+          <Card className="p-6 bg-gradient-secondary border-border h-[450px]">
+            <h2 className="font-semibold text-xl text-primary mb-4 static">Agent Result</h2>
+            <div className="h-[calc(100vh-14rem)] overflow-y-auto space-y-4 text-sm">
+              {/* Real-time Input Logs */}
+              {inputLogs.map((log, index) => (
+                <div key={index} className="border-l-2 border-primary pl-3">
+                  <h3 className="font-medium text-primary mb-2">{log.source}</h3>
+                  <div className="space-y-1">
+                    <div className="text-info">📥 {log.message}</div>
+                    {log.data && (
+                      <div className="text-muted-foreground text-xs">
+                        Data: {JSON.stringify(log.data)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+ 
+              {/* Real-time Output Logs */}
+              {outputLogs.map((log, index) => (
+                <div key={index} className="border-l-2 border-success pl-3">
+                  <h3 className="font-medium text-success mb-2">{log.source}</h3>
+                  <div className="space-y-1">
+                    <div className="text-success">📤 {log.message}</div>
+                    {log.data && (
+                      <div className="text-muted-foreground text-xs">
+                        Data: {JSON.stringify(log.data)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {answerLogs.length > 0 ? (
+                answerLogs.map((log, index) => (
+                  <div key={index} className="border-l-2 border-primary pl-3">
+                    <h3 className="font-medium text-primary mb-2">{log.source}</h3>
+                    <div className="space-y-1">
+                      <div className="text-info">🧠 {log.answer}</div>
+                      <div className="text-muted-foreground text-xs">Timestamp: {log.timestamp}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  No agent answers yet. Send a query to see results.
+                </div>
+              )}
+            </div>
+          </Card>
+        </div>
+ 
+ 
+        {/* Agent Logs */}
+        {/* <Card className="p-6 bg-gradient-secondary border-border h-[300px]">
+          <h2 className="font-semibold mb-4 text-xl text-primary">Agent activity</h2>
+          <div className="h-[calc(100%-2rem)] overflow-y-auto space-y-2 font-mono text-sm">
+            {formattedLogs.slice(-15).map((log, index) => (
+              <div key={index} className={log.className}>
+                {log.text}
+              </div>
+            ))}
+            {formattedLogs.length === 0 && (
+              <div className="text-muted-foreground text-center py-4">
+                No logs yet. Send a query to see agent activity.
+              </div>
+            )}
+          </div>
+        </Card> */}
+ 
+ 
+ 
+        <Card className="p-6 bg-gradient-secondary border-border h-[300px] w-full">
+          <h2 className="font-semibold mb-4 text-xl text-primary">Agent activity</h2>
+          <div className="h-[calc(100%-2rem)] overflow-y-auto space-y-2 font-mono text-sm">
+            {formattedLogs.map((log, index) => (
+              <TypingLine key={index} log={log} delay={index * 10} />
+            ))}
+            {formattedLogs.length === 0 && (
+              <div className="text-muted-foreground text-center py-4">
+                No logs yet. Send a query to see agent activity.
+              </div>
+            )}
+          </div>
+        </Card>
+ 
+      </div>
+    </div>
+  );
+};
+ 
+export default Index;
